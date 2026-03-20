@@ -4,6 +4,8 @@
 
 set -e
 
+export ROS_DOMAIN_ID=8
+
 echo "=========================================="
 echo "Ridgeback R100 - Web Controller"
 echo "=========================================="

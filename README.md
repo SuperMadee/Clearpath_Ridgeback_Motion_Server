@@ -13,7 +13,7 @@ A ROS2 Humble package for the **Clearpath Ridgeback R100** omnidirectional robot
 | 🎯 `srv/Motion.srv` | Custom ROS2 service — supports `linear`, `lateral` (strafe), and `angular` velocity |
 | 🏎️ `ridgeback_image_motion/motion_server.py` | Receives service calls → publishes to `/r100_0140/cmd_vel` |
 | 📷 `ridgeback_image_motion/image_publisher.py` | Subscribes to RealSense raw images → re-publishes as compressed JPEG |
-| 🌐 `ridgeback_image_motion/web_controller.py` | FastAPI web dashboard with MJPEG streaming, omnidirectional teleop, and live status |
+| 🌐 `ridgeback_image_motion/web_controller.py` | FastAPI web dashboard with MJPEG streaming, LiDAR map, omnidirectional teleop, and live status |
 | 🚀 `scripts/ridgeback_start.sh` | Builds & runs motion_server + image_publisher |
 | 🖥️ `scripts/ridgeback_web.sh` | Builds & runs the web controller |
 
@@ -42,6 +42,7 @@ A ROS2 Humble package for the **Clearpath Ridgeback R100** omnidirectional robot
 | Teleop left/right | Rotate in place | Strafe sideways |
 | Extra controls | — | Separate CCW/CW rotation buttons |
 | Keyboard | — | WASD (move) + QE (rotate) + Space (stop) |
+| LiDAR visualization | — | Live top-down 2D map with distance coloring |
 
 ---
 
@@ -113,7 +114,21 @@ bash ~/ros2_ws/src/ridgeback_image_motion/scripts/ridgeback_web.sh
 /r100_0140/platform/odom/filtered           → EKF-filtered odometry
 /r100_0140/sensors/camera_0/color/image     → RealSense raw RGB
 /r100_0140/image/compressed                 → Compressed JPEG (published by image_publisher)
+/r100_0140/sensors/lidar2d_0/scan           → Front LiDAR scan (LaserScan, 25Hz)
 ```
+
+---
+
+## 🗺️ LiDAR Map
+
+The web dashboard includes a **live top-down LiDAR visualization** below the camera feed:
+
+- 🟠 **Robot** shown as orange dot at center
+- 🔴🟡🟢 **Scan points** color-coded by distance (red = close, yellow = mid, green = far)
+- ⭕ **Range rings** at 1m, 2m, 3m, 4m for scale
+- ⬆️ **Forward arrow** shows robot heading
+- 📊 **Info bar** with closest obstacle distance and point count
+- Updates at **5 Hz** for smooth visualization
 
 ---
 

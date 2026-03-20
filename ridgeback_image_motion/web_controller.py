@@ -12,7 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, LaserScan
 from nav_msgs.msg import Odometry
 from ridgeback_image_motion.srv import Motion
 
@@ -37,12 +37,14 @@ class RidgebackController(Node):
         self.declare_parameter('image_topic', '/r100_0140/image/compressed')
         self.declare_parameter('motion_service', 'motion_service')
         self.declare_parameter('odom_topic', '/r100_0140/platform/odom/filtered')
+        self.declare_parameter('lidar_topic', '/r100_0140/sensors/lidar2d_0/scan')
         self.declare_parameter('max_linear_accel', 1.0)
         self.declare_parameter('max_angular_accel', 2.0)
 
         image_topic = self.get_parameter('image_topic').value
         motion_service = self.get_parameter('motion_service').value
         odom_topic = self.get_parameter('odom_topic').value
+        lidar_topic = self.get_parameter('lidar_topic').value
         self.max_linear_accel = self.get_parameter('max_linear_accel').value
         self.max_angular_accel = self.get_parameter('max_angular_accel').value
 
@@ -56,6 +58,20 @@ class RidgebackController(Node):
         self.odom_sub = self.create_subscription(
             Odometry, odom_topic, self.odom_callback, 10
         )
+
+        # LiDAR subscriber
+        lidar_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        self.lidar_sub = self.create_subscription(
+            LaserScan, lidar_topic, self.lidar_callback, lidar_qos
+        )
+
+        # LiDAR state
+        self.lidar_ranges = []
+        self.lidar_angle_min = 0.0
+        self.lidar_angle_max = 0.0
+        self.lidar_angle_increment = 0.0
+        self.lidar_range_max = 10.0
+        self.lidar_lock = threading.Lock()
 
         # Motion Service Client
         self.motion_client = self.create_client(Motion, motion_service)
@@ -98,6 +114,7 @@ class RidgebackController(Node):
         self.get_logger().info(f'  Image: {image_topic}')
         self.get_logger().info(f'  Motion Service: {motion_service}')
         self.get_logger().info(f'  Odom: {odom_topic}')
+        self.get_logger().info(f'  LiDAR: {lidar_topic}')
 
     def image_callback(self, msg):
         now = self.get_clock().now()
@@ -122,6 +139,28 @@ class RidgebackController(Node):
         siny_cosp = 2 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    def lidar_callback(self, msg):
+        with self.lidar_lock:
+            self.lidar_ranges = list(msg.ranges)
+            self.lidar_angle_min = msg.angle_min
+            self.lidar_angle_max = msg.angle_max
+            self.lidar_angle_increment = msg.angle_increment
+            self.lidar_range_max = msg.range_max
+
+    def get_lidar_data(self):
+        with self.lidar_lock:
+            if not self.lidar_ranges:
+                return None
+            # Downsample to every 3rd point for performance
+            step = 3
+            sampled = self.lidar_ranges[::step]
+            return {
+                "ranges": sampled,
+                "angle_min": self.lidar_angle_min,
+                "angle_increment": self.lidar_angle_increment * step,
+                "range_max": self.lidar_range_max
+            }
 
     def get_frame(self):
         with self.frame_lock:
@@ -473,6 +512,16 @@ async def teleop(req: TeleopRequest):
     return JSONResponse({"success": False, "error": "Not connected"})
 
 
+@app.get("/lidar")
+async def lidar_data():
+    if controller:
+        data = controller.get_lidar_data()
+        if data:
+            return JSONResponse(data)
+        return JSONResponse({"error": "No LiDAR data"})
+    return JSONResponse({"error": "Not connected"})
+
+
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -744,6 +793,31 @@ HTML_PAGE = """
             line-height: 1.4;
             border: 1px solid #2d3348;
         }
+        .lidar-container {
+            margin-top: 15px;
+            background: #0d0f1a;
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid #2d3348;
+        }
+        .lidar-container h2 {
+            color: #f7941d;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+        .lidar-container canvas {
+            width: 100%;
+            border-radius: 8px;
+            background: #000;
+        }
+        .lidar-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.75em;
+            color: #7a8fa0;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
         .log-entry { color: #7a8fa0; margin-bottom: 2px; }
         .log-entry.cmd { color: #f7941d; }
         .log-entry.stop { color: #ed1c24; }
@@ -759,6 +833,16 @@ HTML_PAGE = """
             <div class="video-container">
                 <h2>RealSense Camera Feed (Live)</h2>
                 <img id="video" src="/video_feed" alt="Camera Feed">
+
+                <div class="lidar-container">
+                    <h2>LiDAR Map (Top-Down)</h2>
+                    <canvas id="lidar-canvas" width="600" height="600"></canvas>
+                    <div class="lidar-info">
+                        <span id="lidar-closest">Closest: --</span>
+                        <span id="lidar-points">Points: --</span>
+                        <span>Hokuyo UST-10LX (270&deg;)</span>
+                    </div>
+                </div>
             </div>
 
             <div class="panel">
@@ -1030,6 +1114,126 @@ HTML_PAGE = """
 
         setInterval(updateStatus, 2000);
         updateStatus();
+
+        // LiDAR visualization
+        const lidarCanvas = document.getElementById('lidar-canvas');
+        const ctx = lidarCanvas.getContext('2d');
+        const LIDAR_SCALE = 60; // pixels per meter
+        const LIDAR_MAX_RANGE = 4.0; // meters to display
+
+        function drawLidar(data) {
+            const w = lidarCanvas.width;
+            const h = lidarCanvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+
+            // Clear
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, w, h);
+
+            // Draw range rings
+            ctx.strokeStyle = '#1a2a1a';
+            ctx.lineWidth = 1;
+            for (let r = 1; r <= LIDAR_MAX_RANGE; r++) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * LIDAR_SCALE, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#2a3a2a';
+                ctx.font = '11px monospace';
+                ctx.fillText(r + 'm', cx + r * LIDAR_SCALE + 3, cy - 3);
+            }
+
+            // Draw axes
+            ctx.strokeStyle = '#1a2a3a';
+            ctx.beginPath();
+            ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+            ctx.moveTo(0, cy); ctx.lineTo(w, cy);
+            ctx.stroke();
+
+            // Draw forward direction indicator
+            ctx.strokeStyle = '#2d4a2d';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx, cy - 30);
+            ctx.stroke();
+            ctx.fillStyle = '#4fc3f7';
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 35);
+            ctx.lineTo(cx - 5, cy - 25);
+            ctx.lineTo(cx + 5, cy - 25);
+            ctx.fill();
+
+            if (!data || !data.ranges) return;
+
+            const ranges = data.ranges;
+            let angleMin = data.angle_min;
+            const angleInc = data.angle_increment;
+            const rangeMax = Math.min(data.range_max, LIDAR_MAX_RANGE);
+            let closest = Infinity;
+            let validPoints = 0;
+
+            // Draw scan points
+            for (let i = 0; i < ranges.length; i++) {
+                const range = ranges[i];
+                if (range < 0.05 || range > rangeMax || !isFinite(range)) continue;
+
+                const angle = angleMin + i * angleInc;
+                // LiDAR frame: x=forward, y=left → canvas: up=forward, right=+x
+                const px = cx - range * Math.sin(angle) * LIDAR_SCALE;
+                const py = cy - range * Math.cos(angle) * LIDAR_SCALE;
+
+                // Color by distance: close=red, mid=yellow, far=green
+                const t = Math.min(range / rangeMax, 1.0);
+                let r, g, b;
+                if (t < 0.33) {
+                    r = 255; g = Math.floor(t * 3 * 255); b = 0;
+                } else if (t < 0.66) {
+                    r = Math.floor((1 - (t - 0.33) * 3) * 255); g = 255; b = 0;
+                } else {
+                    r = 0; g = 255; b = Math.floor((t - 0.66) * 3 * 255);
+                }
+
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.beginPath();
+                ctx.arc(px, py, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (range < closest) closest = range;
+                validPoints++;
+            }
+
+            // Draw robot at center
+            ctx.fillStyle = '#f7941d';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffc107';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Update info
+            document.getElementById('lidar-closest').textContent =
+                closest < Infinity ? 'Closest: ' + closest.toFixed(2) + 'm' : 'Closest: --';
+            document.getElementById('lidar-points').textContent = 'Points: ' + validPoints;
+        }
+
+        async function updateLidar() {
+            try {
+                const res = await fetch('/lidar');
+                const data = await res.json();
+                if (!data.error) drawLidar(data);
+            } catch (e) {
+                // skip
+            }
+        }
+
+        // Draw empty lidar on load
+        drawLidar(null);
+        setInterval(updateLidar, 200); // 5 Hz update
+        updateLidar();
     </script>
 </body>
 </html>
