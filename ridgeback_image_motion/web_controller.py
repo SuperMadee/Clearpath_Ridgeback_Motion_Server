@@ -569,6 +569,8 @@ HTML_PAGE = """
         }
         .video-container img {
             width: 100%;
+            min-height: 400px;
+            object-fit: contain;
             border-radius: 8px;
             background: #000;
         }
