@@ -569,7 +569,7 @@ HTML_PAGE = """
         }
         .video-container img {
             width: 100%;
-            min-height: 400px;
+            height: 350px;
             object-fit: contain;
             border-radius: 8px;
             background: #000;
@@ -809,6 +809,7 @@ HTML_PAGE = """
         }
         .lidar-container canvas {
             width: 100%;
+            height: 350px;
             border-radius: 8px;
             background: #000;
         }
