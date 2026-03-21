@@ -96,6 +96,8 @@ cd ~/ridgeback
 git pull
 source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=0
+export RMW_FASTRTPS_USE_SHM=0
+export FASTRTPS_DEFAULT_PROFILES_FILE=~/ridgeback/config/fastrtps_ridgeback.xml
 colcon build --packages-select ridgeback_image_motion
 source install/setup.bash
 ros2 run ridgeback_image_motion motion_server.py
@@ -107,6 +109,8 @@ ssh administrator@192.168.131.1
 cd ~/ridgeback
 source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=0
+export RMW_FASTRTPS_USE_SHM=0
+export FASTRTPS_DEFAULT_PROFILES_FILE=~/ridgeback/config/fastrtps_ridgeback.xml
 source install/setup.bash
 ros2 run ridgeback_image_motion image_publisher.py
 ```
@@ -129,13 +133,13 @@ git pull
 source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=0
 export RMW_FASTRTPS_USE_SHM=0
-export FASTRTPS_DEFAULT_PROFILES_FILE=~/ridgeback/config/fastrtps_profile.xml
+export FASTRTPS_DEFAULT_PROFILES_FILE=~/ridgeback/config/fastrtps_jetson.xml
 colcon build --packages-select ridgeback_image_motion
 source install/setup.bash
 ros2 run ridgeback_image_motion web_controller.py
 ```
 
-> 💡 The `fastrtps_profile.xml` tells DDS to connect directly to the Ridgeback's WiFi IP (`10.158.39.184`) via unicast, since multicast may be blocked on the network.
+> 💡 The FastRTPS profiles tell DDS to connect directly via unicast (Jetson → Ridgeback WiFi IP, Ridgeback → Jetson WiFi IP), since multicast may be blocked on the network.
 
 Or use the web controller script:
 ```bash

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Ridgeback DDS profile: discover Jetson on WiFi -->
 <dds xmlns="http://www.eprosima.com/XMLSchemas/FastRTPS_Profiles">
     <profiles>
         <participant profile_name="participant_profile" is_default_profile="true">
@@ -7,7 +8,7 @@
                     <initialPeersList>
                         <locator>
                             <udpv4>
-                                <address>10.158.39.184</address>
+                                <address>10.158.39.28</address>
                             </udpv4>
                         </locator>
                     </initialPeersList>
