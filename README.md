@@ -84,20 +84,35 @@ source install/setup.bash
 
 ### 🤖 Step 1: Start the Ridgeback (onboard PC)
 
-SSH into the Ridgeback:
+**Terminal 1** — SSH into the Ridgeback:
 ```bash
 ssh administrator@192.168.131.1
 # Password: clearpath
 ```
 
-Run the start script — this pulls the latest code, builds, and launches **motion_server** + **image_publisher**:
+Pull latest code, build, and run:
+```bash
+cd ~/ridgeback
+git pull
+source /opt/ros/humble/setup.bash
+colcon build --packages-select ridgeback_image_motion
+source install/setup.bash
+ros2 run ridgeback_image_motion motion_server.py
+```
+
+**Terminal 2** — Open a second SSH session to the Ridgeback:
+```bash
+ssh administrator@192.168.131.1
+cd ~/ridgeback
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 run ridgeback_image_motion image_publisher.py
+```
+
+Or use the start script to run both at once:
 ```bash
 bash ~/ridgeback/scripts/ridgeback_start.sh
 ```
-
-This starts:
-- `/motion_server` — listens for `motion_service` calls and publishes to `/r100_0140/cmd_vel`
-- `/image_publisher` — subscribes to RealSense raw images and publishes compressed JPEG
 
 > 💡 The Clearpath platform nodes (motors, LiDAR, IMU, camera driver) are already running via `clearpath-robot.service` on boot.
 
@@ -105,7 +120,17 @@ This starts:
 
 ### 🖥️ Step 2: Start the Jetson (web controller)
 
-On the Jetson, run the web controller script:
+**Terminal 3** — On the Jetson:
+```bash
+cd ~/ridgeback
+git pull
+source /opt/ros/humble/setup.bash
+colcon build --packages-select ridgeback_image_motion
+source install/setup.bash
+ros2 run ridgeback_image_motion web_controller.py
+```
+
+Or use the web controller script:
 ```bash
 bash ~/ridgeback/scripts/ridgeback_web.sh
 ```
