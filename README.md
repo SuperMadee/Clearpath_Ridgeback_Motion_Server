@@ -132,6 +132,110 @@ The web dashboard includes a **live top-down LiDAR visualization** below the cam
 
 ---
 
+## 🧩 ROS2 Node Architecture
+
+All nodes running on the system, grouped by function.
+
+### 🔗 Custom Nodes (Image & Motion Pipeline)
+
+These are the custom nodes that bridge the **Ridgeback** and the **Jetson controller**:
+
+| Node | Runs On | Role |
+|---|---|---|
+| `/image_publisher` | Ridgeback | Subscribes to raw RealSense images (`/r100_0140/sensors/camera_0/color/image`) and re-publishes as JPEG CompressedImage (`/r100_0140/image/compressed`) at up to 15 FPS |
+| `/motion_server` | Ridgeback | Provides the `motion_service` ROS2 service — receives holonomic motion commands (`linear`, `lateral`, `angular`) and publishes Twist to `/r100_0140/cmd_vel` |
+| `/launch_ros_1219` | Ridgeback | ROS2 launch daemon process that started the custom nodes above |
+| Web Controller *(runs as FastAPI, not a ROS2 node)* | Jetson | Subscribes to compressed images, odometry, and LiDAR — calls `motion_service` on the Ridgeback — serves the web UI |
+
+### 🏎️ Drive & Control Nodes
+
+| Node | Role |
+|---|---|
+| `/r100_0140/controller_manager` | ros2_control manager — loads and manages hardware interfaces and controllers |
+| `/r100_0140/platform_velocity_controller` | Converts `cmd_vel` Twist into individual wheel velocity commands for omnidirectional drive |
+| `/r100_0140/twist_mux` | Multiplexes multiple Twist sources (joystick, teleop, autonomy) by priority |
+| `/r100_0140/twist_server_node` | Clearpath internal twist relay between the mux and the controller |
+| `/r100_0140/puma_control` | Manages PUMA motor controller state |
+| `/r100_0140/puma_hardware_interface` | ros2_control hardware plugin — talks directly to PUMA motors over CAN bus |
+| `/r100_0140/r100_node` | Platform node — communicates with the MCU firmware over CAN (e-stop, lighting, status) |
+| `/r100_0140/vcan0_socket_can_receiver` | CAN bus bridge — receives CAN frames from the MCU into ROS2 |
+| `/r100_0140/vcan0_socket_can_sender` | CAN bus bridge — sends CAN frames from ROS2 to the MCU |
+
+### 🧭 Localization & State Estimation
+
+| Node | Role |
+|---|---|
+| `/r100_0140/ekf_node` | Extended Kalman Filter — fuses wheel odometry + IMU → publishes filtered odometry (`/r100_0140/platform/odom/filtered`) |
+| `/r100_0140/imu_filter_madgwick` | Madgwick orientation filter — produces stable orientation from raw IMU data |
+| `/r100_0140/joint_state_broadcaster` | ros2_control broadcaster — publishes `/joint_states` from the hardware interface |
+| `/r100_0140/robot_state_publisher` | Reads URDF + joint states → publishes all TF transforms (`/tf`, `/tf_static`) |
+
+### 📡 Sensor Nodes
+
+| Node | Role |
+|---|---|
+| `/r100_0140/sensors/camera_0/intel_realsense` | RealSense D435 driver — publishes raw RGB, depth, and pointcloud topics |
+| `/r100_0140/sensors/camera_0/image_processing_container` | Composable node container — hosts image processing nodelets (rectification, debayering) |
+| `/r100_0140/sensors/lidar2d_0/urg_node` | Hokuyo UST-10LX driver — publishes LaserScan at 25 Hz, 270° FOV |
+
+### 🎮 Teleop & HID Nodes
+
+| Node | Role |
+|---|---|
+| `/r100_0140/joy_node` | Reads PS4 controller over Bluetooth → publishes `sensor_msgs/Joy` |
+| `/r100_0140/teleop_twist_joy_node` | Converts Joy messages into Twist velocity commands for `twist_mux` |
+
+### 🩺 Diagnostics & Status Nodes
+
+| Node | Role |
+|---|---|
+| `/r100_0140/analyzers` | diagnostic_aggregator — collects diagnostics from all subsystems |
+| `/r100_0140/clearpath_diagnostics_updater` | Publishes periodic diagnostic updates for the platform |
+| `/r100_0140/battery_state_estimator` | Estimates battery state of charge |
+| `/r100_0140/battery_state_control` | Battery monitoring and control |
+| `/r100_0140/lighting_node` | Controls the LED light ring (color patterns for status) |
+| `/r100_0140/wireless_watcher` | Monitors WiFi connection status and publishes diagnostics |
+
+### 📊 Data Flow Diagram
+
+```
+                         RIDGEBACK R100
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  RealSense ──► /intel_realsense ──► raw Image            │
+│                                        │                 │
+│                                   /image_publisher       │
+│                                        │                 │
+│                                  CompressedImage         │
+│                                        │                 │
+│                                        ▼                 │
+│              ┌─────────────────────────────────┐         │
+│              │        ROS2 DDS Network         │         │
+│              │       (Domain ID = 0)           │         │
+│              └─────────────────────────────────┘         │
+│                                        ▲                 │
+│  /motion_server ◄── motion_service ────┘                 │
+│       │                                                  │
+│       ▼                                                  │
+│  /cmd_vel ──► twist_mux ──► velocity_ctrl ──► motors     │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+                           │
+                    ROS2 DDS (Domain ID 0)
+                           │
+┌──────────────────────────┴───────────────────────────────┐
+│               JETSON / WEB CONTROLLER                    │
+│                                                          │
+│  web_controller.py (FastAPI)                             │
+│    ├── subscribes: CompressedImage, Odometry, LaserScan  │
+│    ├── calls: motion_service (client)                    │
+│    └── serves: Web UI at :8080 (MJPEG + teleop)          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 🛠️ Dependencies
 
 - ROS2 Humble 🐝
