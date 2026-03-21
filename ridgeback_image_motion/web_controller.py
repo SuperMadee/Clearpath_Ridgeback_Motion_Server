@@ -12,7 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-from sensor_msgs.msg import CompressedImage, LaserScan
+from sensor_msgs.msg import CompressedImage, LaserScan, BatteryState
 from nav_msgs.msg import Odometry
 from ridgeback_image_motion.srv import Motion
 
@@ -38,6 +38,7 @@ class RidgebackController(Node):
         self.declare_parameter('motion_service', 'motion_service')
         self.declare_parameter('odom_topic', '/r100_0140/platform/odom/filtered')
         self.declare_parameter('lidar_topic', '/r100_0140/sensors/lidar2d_0/scan')
+        self.declare_parameter('battery_topic', '/r100_0140/platform/bms/state')
         self.declare_parameter('max_linear_accel', 1.0)
         self.declare_parameter('max_angular_accel', 2.0)
 
@@ -45,6 +46,7 @@ class RidgebackController(Node):
         motion_service = self.get_parameter('motion_service').value
         odom_topic = self.get_parameter('odom_topic').value
         lidar_topic = self.get_parameter('lidar_topic').value
+        battery_topic = self.get_parameter('battery_topic').value
         self.max_linear_accel = self.get_parameter('max_linear_accel').value
         self.max_angular_accel = self.get_parameter('max_angular_accel').value
 
@@ -64,6 +66,15 @@ class RidgebackController(Node):
         self.lidar_sub = self.create_subscription(
             LaserScan, lidar_topic, self.lidar_callback, best_effort_qos
         )
+
+        # Battery subscriber
+        self.battery_sub = self.create_subscription(
+            BatteryState, battery_topic, self.battery_callback, reliable_qos
+        )
+
+        # Battery state
+        self.battery_voltage = 0.0
+        self.battery_percentage = 0.0
 
         # LiDAR state
         self.lidar_ranges = []
@@ -147,6 +158,10 @@ class RidgebackController(Node):
             self.lidar_angle_max = msg.angle_max
             self.lidar_angle_increment = msg.angle_increment
             self.lidar_range_max = msg.range_max
+
+    def battery_callback(self, msg):
+        self.battery_voltage = msg.voltage
+        self.battery_percentage = msg.percentage
 
     def get_lidar_data(self):
         with self.lidar_lock:
@@ -387,6 +402,10 @@ class RidgebackController(Node):
                 "image_ms": round(self.image_latency_ms, 2),
                 "motion_ms": round(self.motion_latency_ms, 2),
                 "odom_ms": round(self.odom_latency_ms, 2)
+            },
+            "battery": {
+                "voltage": round(self.battery_voltage, 2),
+                "percentage": round(self.battery_percentage, 1)
             }
         }
 
@@ -854,6 +873,18 @@ HTML_PAGE = """
                     <span class="status-text" id="status">Connecting...</span>
                 </div>
 
+                <h2>Battery</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Voltage</div>
+                        <div class="info-value" id="battery-voltage">--</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Level</div>
+                        <div class="info-value" id="battery-percent">--</div>
+                    </div>
+                </div>
+
                 <h2>Pose</h2>
                 <div class="info-grid">
                     <div class="info-item">
@@ -950,6 +981,11 @@ HTML_PAGE = """
                     document.getElementById('lat-image').textContent = data.latency.image_ms.toFixed(1);
                     document.getElementById('lat-motion').textContent = data.latency.motion_ms.toFixed(1);
                     document.getElementById('lat-odom').textContent = data.latency.odom_ms.toFixed(1);
+                }
+
+                if (data.battery) {
+                    document.getElementById('battery-voltage').textContent = data.battery.voltage.toFixed(2) + ' V';
+                    document.getElementById('battery-percent').textContent = data.battery.percentage.toFixed(1) + ' %';
                 }
 
                 if (data.logs && data.logs.length > 0) {
