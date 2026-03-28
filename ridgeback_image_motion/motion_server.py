@@ -7,6 +7,7 @@ Supports holonomic (omnidirectional) movement: forward/backward, strafe, rotatio
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import Twist
 from ridgeback_image_motion.srv import Motion
 
@@ -19,8 +20,9 @@ class MotionServer(Node):
         self.declare_parameter('cmd_vel_topic', '/r100_0140/cmd_vel')
         cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
 
-        # Publisher to cmd_vel
-        self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
+        # Publisher to cmd_vel (BEST_EFFORT to match twist_mux subscriber)
+        cmd_vel_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+        self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, cmd_vel_qos)
 
         # Service server
         self.service = self.create_service(
