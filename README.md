@@ -61,7 +61,7 @@ A ROS2 Humble package for the **Clearpath Ridgeback R100** omnidirectional robot
    - Solid RED = MCU is not in contact with the computer ❌ → re-check network configs
 3. **Verify ROS is running** — The `clearpath-robot.service` starts automatically on boot. Check with:
    ```bash
-   ssh administrator@192.168.131.1 # or ssh administrator@10.158.38.184 if via WiFi
+   ssh administrator@192.168.131.1 # or ssh administrator@10.158.38.203 if via WiFi
    # Password: c***r***h
    sudo systemctl status clearpath-robot.service
    ```
