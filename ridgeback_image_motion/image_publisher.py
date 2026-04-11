@@ -96,7 +96,9 @@ class ImagePublisher(Node):
     def _depth_cb(self, msg: Image):
         try:
             depth = self.bridge.imgmsg_to_cv2(msg, 'passthrough')  # uint16
-            success, buf = cv2.imencode('.png', depth)
+            success, buf = cv2.imencode(
+                '.png', depth, [cv2.IMWRITE_PNG_COMPRESSION, 1]
+            )
             if success:
                 out = CompressedImage()
                 out.header = msg.header
